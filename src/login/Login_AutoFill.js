@@ -1,10 +1,12 @@
 // ==UserScript==
-// @name         PPE_Login_AutoFill
+// @name         Login_AutoFill
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  autofill heslo/SMS
 // @author       Vojtěch Urban
 // @match        https://tmbs.internetbanka.cz/*
+// @match        https://tembs.internetbanka.cz/*
+// @match        https://mbczvl6altlsb000003-reactapp.ux.mbid.cz/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -148,6 +150,14 @@
         warn: (...a) => DEBUG && console.warn('[IBAF]', ...a),
         error: (...a) => console.error('[IBAF]', ...a)
     };
+
+    function getEnvironmentName() {
+        const host = String(location.hostname || '').toLowerCase();
+        if (host === 'tmbs.internetbanka.cz') return 'PPE';
+        if (host === 'tembs.internetbanka.cz') return 'TST1';
+        if (host === 'mbczvl6altlsb000003-reactapp.ux.mbid.cz') return 'DEV3';
+        return 'UNKNOWN';
+    }
 
     const DEFAULT_SETTINGS = Object.freeze({
         password: DEFAULT_PASSWORD,
@@ -2817,7 +2827,8 @@
             btn.id = 'autofill-login-btn';
             btn.type = 'button';
             btn.textContent = '🔐';
-            btn.title = 'Autofill — Alt+A (Alt+S menu)';
+            btn.setAttribute('data-env', getEnvironmentName());
+            btn.title = `Autofill ${getEnvironmentName()} — Alt+A (Alt+S menu)`;
 
             const s = loadSettings();
             btn.setAttribute('data-theme', THEMES.includes(s.theme) ? s.theme : 'teal');

@@ -1,9 +1,10 @@
 // ==UserScript==
-// @name         TST1_NTB_AutoFill_All_In_One
+// @name         NTB_AutoFill_All_In_One
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  AutoFill (phone, email, ID card, secondary doc, additional info, AML)
 // @author       Vojtěch Urban (enhanced)
+// @match        https://ppe-aplikace.moneta.cz/smeonboarding/*
 // @match        https://test1-aplikace.moneta.cz/smeonboarding/*
 // @grant        none
 // @run-at       document-idle
@@ -1666,7 +1667,16 @@
         const arr = Array.isArray(items) ? items : [];
 
         if (arr.length === 0) {
-            container.innerHTML = `<div class="ibaf-report-item"><div class="k">—</div><div class="v">Nic</div></div>`;
+            const div = document.createElement('div');
+            div.className = 'ibaf-report-item';
+            const key = document.createElement('div');
+            key.className = 'k';
+            key.textContent = '—';
+            const value = document.createElement('div');
+            value.className = 'v';
+            value.textContent = 'Nic';
+            div.append(key, value);
+            container.appendChild(div);
             return;
         }
 
@@ -1674,7 +1684,13 @@
             const { k, v } = formatter(it);
             const div = document.createElement('div');
             div.className = 'ibaf-report-item';
-            div.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+            const key = document.createElement('div');
+            key.className = 'k';
+            key.textContent = String(k ?? '');
+            const value = document.createElement('div');
+            value.className = 'v';
+            value.textContent = String(v ?? '');
+            div.append(key, value);
             container.appendChild(div);
         }
     }
@@ -3025,11 +3041,12 @@
 
         const badgeEl = btn.querySelector(`#${UI_IDS.buttonBadge}`);
         if (badgeEl) {
-            badgeEl.textContent = 'AF';
+            badgeEl.textContent = runtimeVariant;
         }
 
         btn.title =
 `AutoFill
+Prostředí: ${runtimeVariant}
 Klik: akce dle stránky, jinak menu
 Pravé tlačítko / Ctrl+Alt+A: menu
 Alt+S: Údaje klienta (jen /business-detail)
