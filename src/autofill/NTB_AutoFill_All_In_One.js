@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NTB_AutoFill_All_In_One
-// @namespace    http://tampermonkey.net/
-// @version      1.0
+// @namespace    https://local.test-tools/
+// @version      1.0.0
 // @description  AutoFill (phone, email, ID card, secondary doc, additional info, AML)
 // @author       Vojtěch Urban (enhanced)
 // @match        https://ppe-aplikace.moneta.cz/smeonboarding/*
@@ -39,7 +39,18 @@
         if (el) el.remove();
     }
 
-    const DEBUG = false;
+    const CONFIG = Object.freeze({
+        debug: false,
+        environments: {
+            'ppe-aplikace.moneta.cz': 'PPE',
+            'test1-aplikace.moneta.cz': 'TST1'
+        }
+    });
+
+    const DEBUG = CONFIG.debug;
+
+    const ENVIRONMENTS = Object.freeze(CONFIG.environments);
+    const SCRIPT_VERSION = '1.0.0';
 
     const DEFAULT_PHONE_NUMBER = '720867165';
     const DEFAULT_EMAIL_ADDRESS = '212628467@moneta.cz';
@@ -163,6 +174,10 @@
         warn: (...a) => DEBUG && console.warn('[IBAF]', ...a),
         error: (...a) => console.error('[IBAF]', ...a)
     };
+
+    function getEnvironmentName() {
+        return ENVIRONMENTS[String(location.hostname || '').toLowerCase()] || 'UNKNOWN';
+    }
 
     const debugBuffer = [];
 
@@ -3038,15 +3053,16 @@
 
         const p = getActiveProfile();
         const runtimeVariant = getEffectiveVariant(p);
+        const envName = getEnvironmentName();
 
         const badgeEl = btn.querySelector(`#${UI_IDS.buttonBadge}`);
         if (badgeEl) {
-            badgeEl.textContent = runtimeVariant;
+            badgeEl.textContent = envName;
         }
 
         btn.title =
 `AutoFill
-Prostředí: ${runtimeVariant}
+Prostředí: ${envName}
 Klik: akce dle stránky, jinak menu
 Pravé tlačítko / Ctrl+Alt+A: menu
 Alt+S: Údaje klienta (jen /business-detail)
@@ -3182,6 +3198,10 @@ Režim: agresivní`;
         openPerson: () => openPersonPanelNear(ensureButton()),
         openReport: () => openReportPanelNear(ensureButton())
     };
-    console.info('[IBAF] AutoFill snippet aktivní. API: window.__IBAF_NTB_AUTOFILL_RUNTIME__');
+    console.info('[IBAF] NTB_AutoFill_All_In_One aktivní.', {
+        version: SCRIPT_VERSION,
+        env: getEnvironmentName(),
+        runtimeApi: 'window.__IBAF_NTB_AUTOFILL_RUNTIME__'
+    });
 
 })();

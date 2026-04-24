@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Login_AutoFill
-// @namespace    http://tampermonkey.net/
-// @version      1.0
+// @namespace    https://local.test-tools/
+// @version      1.0.0
 // @description  autofill heslo/SMS
 // @author       Vojtěch Urban
 // @match        https://tmbs.internetbanka.cz/*
@@ -40,7 +40,19 @@
         if (el) el.remove();
     }
 
-    const DEBUG = false;
+    const CONFIG = Object.freeze({
+        debug: false,
+        environments: {
+            'tmbs.internetbanka.cz': 'PPE',
+            'tembs.internetbanka.cz': 'TST1',
+            'mbczvl6altlsb000003-reactapp.ux.mbid.cz': 'DEV3'
+        }
+    });
+
+    const DEBUG = CONFIG.debug;
+
+    const ENVIRONMENTS = Object.freeze(CONFIG.environments);
+    const SCRIPT_VERSION = '1.0.0';
 
     const DEFAULT_PASSWORD = 'Aa123456';
     const DEFAULT_SMS_CODE = '12341234';
@@ -152,11 +164,7 @@
     };
 
     function getEnvironmentName() {
-        const host = String(location.hostname || '').toLowerCase();
-        if (host === 'tmbs.internetbanka.cz') return 'PPE';
-        if (host === 'tembs.internetbanka.cz') return 'TST1';
-        if (host === 'mbczvl6altlsb000003-reactapp.ux.mbid.cz') return 'DEV3';
-        return 'UNKNOWN';
+        return ENVIRONMENTS[String(location.hostname || '').toLowerCase()] || 'UNKNOWN';
     }
 
     const DEFAULT_SETTINGS = Object.freeze({
@@ -390,6 +398,13 @@
 #autofill-login-btn:hover{transform:translateY(-1px);box-shadow:0 5px 14px rgba(0,0,0,.28)}
 #autofill-login-btn:active{transform:translateY(0);box-shadow:0 2px 8px rgba(0,0,0,.22)}
 #autofill-login-btn,#autofill-login-btn *{-webkit-user-select:none;user-select:none}
+#autofill-login-btn::after{
+  content:attr(data-env);position:absolute;top:-7px;right:-15px;
+  min-width:22px;max-width:34px;padding:1px 3px;border-radius:999px;
+  background:rgba(15,23,42,.92);color:#e2e8f0;border:1px solid rgba(255,255,255,.38);
+  font-size:7px;font-weight:800;line-height:1.15;text-align:center;letter-spacing:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.22);overflow:hidden;text-overflow:ellipsis;
+}
 
 #autofill-login-btn[data-theme="teal"]{background:linear-gradient(135deg,#0098a8,#22d4d4)}
 #autofill-login-btn[data-theme="indigo"]{background:linear-gradient(135deg,#3b5bdb,#748ffc)}
@@ -3265,6 +3280,10 @@
         openMenu: () => openMenuNearButton(),
         openFavorites: () => openFavorites()
     };
-    console.info('[IBAF-LOGIN] Login snippet aktivní. API: window.__IBAF_LOGIN_RUNTIME__');
+    console.info('[IBAF-LOGIN] Login_AutoFill aktivní.', {
+        version: SCRIPT_VERSION,
+        env: getEnvironmentName(),
+        runtimeApi: 'window.__IBAF_LOGIN_RUNTIME__'
+    });
 
 })();

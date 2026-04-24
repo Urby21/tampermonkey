@@ -2,6 +2,8 @@
 
 Repo obsahuje tri aktivni, samostatne kopirovatelne userscripty pro testovaci prostredi. Nevyzaduji build, balickovani ani instalaci zavislosti.
 
+Pro rucni pouziti viz `USAGE.md`. Pro rychle overeni po zmene viz `SMOKE_TEST.md`.
+
 ## Aktivni skripty
 
 | Skript | Prostredi | URL |
@@ -11,6 +13,27 @@ Repo obsahuje tri aktivni, samostatne kopirovatelne userscripty pro testovaci pr
 | `src/document_interceptor/NTB_Document_Upload_Interceptor.js` | PPE, TST1 | `ppe-aplikace.moneta.cz/smeonboarding/*`, `test1-aplikace.moneta.cz/smeonboarding/*` |
 
 Kazdy soubor ma vlastni `// ==UserScript==` hlavicku a vice `@match` radku, takze jde vlozit primo do Tampermonkey nebo jako Chrome snippet.
+Namespace je zamerne neutralni (`https://local.test-tools/`) a neni spojeny se zamestnavatelem.
+Zdroj pravdy je `src/`; `dist/` obsahuje jen pripravene kopie a `backup/` je pouze historicka kopie.
+
+## Metadata standard
+
+Kazdy aktivni skript drzi stejny zaklad hlavicky:
+
+```js
+// ==UserScript==
+// @name         Nazev_Skriptu
+// @namespace    https://local.test-tools/
+// @version      1.0.0
+// @description  Strucny popis
+// @author       Vojtech Urban
+// @match        https://example.test/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+```
+
+Nepouzivej `@downloadURL` ani `@updateURL`, aby skripty zustaly vhodne pro rucni kopirovani v omezenem korporatnim prostredi.
 
 ## Pouziti
 
@@ -37,10 +60,22 @@ Po zmene skriptu rucne over:
 ## Pred predanim
 
 - Spust syntax kontrolu pro vsechny tri aktivni skripty.
+- Spust zakladni repo kontrolu `sh scripts/check.sh`.
+- Volitelne priprav kopie do `dist/` prikazem `sh scripts/release.sh`.
+- Vypln nebo projdi `SMOKE_TEST.md`.
 - Rucne over login skript na PPE, TST1 a DEV3.
 - Rucne over NTB autofill na PPE a TST1.
 - Rucne over document interceptor na PPE a TST1.
 - V konzoli over aktivacni hlasky a u interceptoru log o nahrazeni uploadu dokladu.
+
+## Known behavior
+
+- Testovaci heslo a OTP jsou zamerne hardcoded testovaci hodnoty.
+- Zadni strana RP se zamerne nepouziva; `secondary-document-photo` mapuje jen `DRIVING_LICENSE_FRONT`.
+- Skripty jsou samostatne a bez buildu/importu.
+- Puvodni env-specific `.user.js` varianty byly nahrazeny jednim souborem na rodinu skriptu.
+- Interceptor uz neobsahuje sekvencni state pro RP front/back, protoze back cast se nepouziva.
+- Debug a runtime API prepinace jsou soustredene nahore v `CONFIG`.
 
 ## Poznamky
 
@@ -50,6 +85,14 @@ Po zmene skriptu rucne over:
 - Interni runtime klice v `window` zustavaji kompatibilni se starsimi variantami, aby novy skript umel uklidit predchozi bezici instanci po prekopirovani do prohlizece.
 
 ## Rychla kontrola syntaxe
+
+Jednim prikazem:
+
+```sh
+sh scripts/check.sh
+```
+
+Nebo jednotlive:
 
 ```sh
 node --check src/login/Login_AutoFill.js
