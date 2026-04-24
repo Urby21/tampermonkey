@@ -1,42 +1,16 @@
 // ==UserScript==
-// @name         PPE_Login_AutoFill
+// @name         DEV3_Login_AutoFill
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  autofill heslo/SMS
 // @author       Vojtěch Urban
-// @match        https://tmbs.internetbanka.cz/*
+// @match        https://mbczvl6altlsb000003-reactapp.ux.mbid.cz/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
     'use strict';
-
-    const SCRIPT_KEY = '__IBAF_LOGIN_RUNTIME__';
-    const previousRuntime = window[SCRIPT_KEY];
-    if (previousRuntime && typeof previousRuntime.destroy === 'function') {
-        try {
-            previousRuntime.destroy({ silent: true, reason: 'reinit' });
-        } catch (e) {
-            console.warn('[IBAF-LOGIN] Nepodařilo se odinstalovat předchozí login runtime.', e);
-        }
-    }
-
-    const cleanupFns = [];
-    function registerCleanup(fn) {
-        if (typeof fn === 'function') cleanupFns.push(fn);
-        return fn;
-    }
-    function runCleanups() {
-        while (cleanupFns.length) {
-            const fn = cleanupFns.pop();
-            try { fn(); } catch (e) { console.warn('[IBAF-LOGIN] Cleanup chyba:', e); }
-        }
-    }
-    function removeElementById(id) {
-        const el = document.getElementById(id);
-        if (el) el.remove();
-    }
 
     const DEBUG = false;
 
@@ -3151,43 +3125,7 @@
         maybeCaptureClientName();
     }
 
-    function onSpaUrlChange(cb) {
-        let last = location.href;
-
-        const fire = () => {
-            const cur = location.href;
-            if (cur !== last) {
-                last = cur;
-                cb(cur);
-            }
-        };
-
-        const push = history.pushState;
-        const wrappedPushState = function () {
-            const r = push.apply(this, arguments);
-            fire();
-            return r;
-        };
-        history.pushState = wrappedPushState;
-
-        const rep = history.replaceState;
-        const wrappedReplaceState = function () {
-            const r = rep.apply(this, arguments);
-            fire();
-            return r;
-        };
-        history.replaceState = wrappedReplaceState;
-
-        window.addEventListener('popstate', fire);
-
-        return () => {
-            if (history.pushState === wrappedPushState) history.pushState = push;
-            if (history.replaceState === wrappedReplaceState) history.replaceState = rep;
-            window.removeEventListener('popstate', fire);
-        };
-    }
-
-    const onKeydown = (e) => {
+    window.addEventListener('keydown', (e) => {
         if (!isLoginInputRendered()) return;
 
         if (e.altKey && (e.key === 'a' || e.key === 'A')) {
@@ -3213,9 +3151,7 @@
             closeClipboardPicker();
             closeConfirm();
         }
-    };
-    window.addEventListener('keydown', onKeydown, { passive: false });
-    registerCleanup(() => window.removeEventListener('keydown', onKeydown, false));
+    }, { passive: false });
 
     let debounce;
     const mo = new MutationObserver(() => {
@@ -3223,37 +3159,17 @@
         debounce = setTimeout(updateButtonAndActivation, 120);
     });
     mo.observe(document, { childList: true, subtree: true });
-    registerCleanup(() => {
-        clearTimeout(debounce);
-        mo.disconnect();
-    });
-    registerCleanup(onSpaUrlChange(() => updateButtonAndActivation()));
+    window.addEventListener('beforeunload', () => mo.disconnect());
 
-    function destroyRuntime({ silent = false } = {}) {
-        runCleanups();
-        [
-            'ibaf-style',
-            'ibaf-toast',
-            'ibaf-atoast',
-            'ibaf-clip',
-            'ibaf-confirm',
-            'ibaf-modal',
-            'ibaf-fav',
-            'ibaf-ctx',
-            'autofill-login-btn'
-        ].forEach(removeElementById);
-        delete window[SCRIPT_KEY];
-        if (!silent) console.info('[IBAF-LOGIN] Login snippet odinstalován.');
-    }
+    let lastHref = location.href;
+    setInterval(() => {
+        const cur = location.href;
+        if (cur !== lastHref) {
+            lastHref = cur;
+            updateButtonAndActivation();
+        }
+    }, 450);
 
     updateButtonAndActivation();
-
-    window[SCRIPT_KEY] = {
-        destroy: destroyRuntime,
-        refresh: () => updateButtonAndActivation(),
-        openMenu: () => openMenuNearButton(),
-        openFavorites: () => openFavorites()
-    };
-    console.info('[IBAF-LOGIN] Login snippet aktivní. API: window.__IBAF_LOGIN_RUNTIME__');
 
 })();

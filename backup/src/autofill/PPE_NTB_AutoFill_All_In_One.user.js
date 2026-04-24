@@ -1,42 +1,16 @@
 // ==UserScript==
-// @name         TST1_NTB_AutoFill_All_In_One
+// @name         PPE_NTB_AutoFill_All_In_One
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  AutoFill (phone, email, ID card, secondary doc, additional info, AML)
 // @author       Vojtěch Urban (enhanced)
-// @match        https://test1-aplikace.moneta.cz/smeonboarding/*
+// @match        https://ppe-aplikace.moneta.cz/smeonboarding/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
     'use strict';
-
-    const SCRIPT_KEY = '__IBAF_NTB_AUTOFILL_RUNTIME__';
-    const previousRuntime = window[SCRIPT_KEY];
-    if (previousRuntime && typeof previousRuntime.destroy === 'function') {
-        try {
-            previousRuntime.destroy({ silent: true, reason: 'reinit' });
-        } catch (e) {
-            console.warn('[IBAF] Nepodařilo se odinstalovat předchozí AutoFill runtime.', e);
-        }
-    }
-
-    const cleanupFns = [];
-    function registerCleanup(fn) {
-        if (typeof fn === 'function') cleanupFns.push(fn);
-        return fn;
-    }
-    function runCleanups() {
-        while (cleanupFns.length) {
-            const fn = cleanupFns.pop();
-            try { fn(); } catch (e) { console.warn('[IBAF] Cleanup chyba:', e); }
-        }
-    }
-    function removeElementById(id) {
-        const el = document.getElementById(id);
-        if (el) el.remove();
-    }
 
     const DEBUG = false;
 
@@ -84,106 +58,14 @@
     const CLAMP_MARGIN = 4, DEFAULT_OFFSET = 24;
     const THEMES = ['teal', 'indigo', 'violet', 'amber', 'tomato', 'emerald', 'slate'];
 
+    const AUTO_RUN_SESSION_KEY = 'ibaf.ntb.autoRun.seen';
     const MICRO_CACHE_TTL = 350;
-    const DEBUG_BUFFER_LIMIT = 40;
-
-    const UI_IDS = Object.freeze({
-        button: 'ibaf-btn',
-        buttonBadge: 'ibaf-btn-badge',
-        personPanel: 'ibaf-person-panel',
-        dataPanel: 'ibaf-data-panel',
-        reportPanel: 'ibaf-report-panel',
-        menu: 'ibaf-menu'
-    });
-
-    const SELECTOR_REGISTRY = Object.freeze({
-        panels: {
-            person: `#${UI_IDS.personPanel}`,
-            data: `#${UI_IDS.dataPanel}`,
-            report: `#${UI_IDS.reportPanel}`,
-            menu: `#${UI_IDS.menu}`
-        },
-        fieldLabels: {
-            phoneNumber: ['Telefon', 'Telefonní číslo', 'Číslo telefonu'],
-            email: ['E-mail', 'Email'],
-            street: ['Ulice'],
-            descriptiveNumber: ['Číslo popisné', 'Č.p.', 'CP'],
-            orientationNumber: ['Číslo orientační', 'Č.o.', 'CO'],
-            town: ['Obec', 'Město', 'Obec / Město'],
-            zip: ['PSČ', 'PSC'],
-            birthPlace: ['Místo narození'],
-            documentNumber: ['Číslo dokladu', 'Číslo průkazu'],
-            documentValidTo: ['Platnost do', 'Platnost dokladu do', 'Datum platnosti do'],
-            turnoverLastYear: ['Obrat', 'Obrat za minulý rok'],
-            netAnnuallyBusinessProfit: ['Čistý roční zisk', 'Čistý roční zisk z podnikání'],
-            netMonthlyHouseholdIncome: ['Čistý měsíční příjem domácnosti', 'Příjem domácnosti'],
-            employeeCount: ['Počet zaměstnanců']
-        }
-    });
-
-    const ACTION_FIELD_MAPS = Object.freeze({
-        phone: [
-            { id: 'phoneNumber', selectorKey: 'phoneNumber', uiLabel: 'Telefon', validateKey: 'phone', dataKey: 'phone' },
-            { id: 'email', selectorKey: 'email', uiLabel: 'E-mail', validateKey: 'email', dataKey: 'email' }
-        ],
-        idc: [
-            { id: 'firstName', labels: ['Jméno'], uiLabel: 'Jméno', dataKey: 'firstName' },
-            { id: 'lastName', labels: ['Příjmení'], uiLabel: 'Příjmení', dataKey: 'lastName' },
-            { id: 'birthDate', labels: ['Datum narození'], uiLabel: 'Datum narození', validateKey: 'date', dataKey: 'birthDate' },
-            { id: 'birthNumber', labels: ['Rodné číslo'], uiLabel: 'Rodné číslo', validateKey: 'birthNumber', dataKey: 'birthNumber' },
-            { id: 'street', selectorKey: 'street', uiLabel: 'Ulice', dataKey: 'street' },
-            { id: 'descriptiveNumber', selectorKey: 'descriptiveNumber', uiLabel: 'Číslo popisné', dataKey: 'descriptiveNumber' },
-            { id: 'orientationNumber', selectorKey: 'orientationNumber', uiLabel: 'Číslo orientační', dataKey: 'orientationNumber' },
-            { id: 'town', selectorKey: 'town', uiLabel: 'Obec / Město', dataKey: 'town' },
-            { id: 'zip', selectorKey: 'zip', uiLabel: 'PSČ', validateKey: 'zip', dataKey: 'zip' },
-            { id: 'birthPlace', selectorKey: 'birthPlace', uiLabel: 'Místo narození', dataKey: 'birthPlace' },
-            { id: 'documentNumber', selectorKey: 'documentNumber', uiLabel: 'Číslo dokladu', dataKey: 'documentNumber' },
-            { id: 'documentValidTo', selectorKey: 'documentValidTo', uiLabel: 'Platnost dokladu do', validateKey: 'date', dataKey: 'documentValidTo' }
-        ],
-        sec: [
-            { id: 'firstName', labels: ['Jméno'], uiLabel: 'Jméno', dataKey: 'firstName' },
-            { id: 'lastName', labels: ['Příjmení'], uiLabel: 'Příjmení', dataKey: 'lastName' },
-            { id: 'birthDate', labels: ['Datum narození'], uiLabel: 'Datum narození', validateKey: 'date', dataKey: 'birthDate' },
-            { id: 'birthNumber', labels: ['Rodné číslo'], uiLabel: 'Rodné číslo', validateKey: 'birthNumber', dataKey: 'birthNumber' },
-            { id: 'birthPlace', selectorKey: 'birthPlace', uiLabel: 'Místo narození', dataKey: 'birthPlace' },
-            { id: 'documentNumber', selectorKey: 'documentNumber', uiLabel: 'Číslo dokladu', dataKey: 'documentNumber' },
-            { id: 'documentValidTo', selectorKey: 'documentValidTo', uiLabel: 'Platnost dokladu do', validateKey: 'date', dataKey: 'documentValidTo' }
-        ],
-        add: [
-            { id: 'turnoverLastYear', selectorKey: 'turnoverLastYear', uiLabel: 'Obrat za minulý rok', validateKey: 'money', dataKey: 'turnoverLastYear' },
-            { id: 'netAnnuallyBusinessProfit', selectorKey: 'netAnnuallyBusinessProfit', uiLabel: 'Čistý roční zisk z podnikání', validateKey: 'money', dataKey: 'netAnnuallyBusinessProfit' },
-            { id: 'netMonthlyHouseholdIncome', selectorKey: 'netMonthlyHouseholdIncome', uiLabel: 'Čistý měsíční příjem domácnosti', validateKey: 'money', dataKey: 'netMonthlyHouseholdIncome' },
-            { id: 'employeeCount', selectorKey: 'employeeCount', uiLabel: 'Počet zaměstnanců', validateKey: 'money', dataKey: 'employeeCount' }
-        ]
-    });
 
     const log = {
         info: (...a) => DEBUG && console.info('[IBAF]', ...a),
         warn: (...a) => DEBUG && console.warn('[IBAF]', ...a),
         error: (...a) => console.error('[IBAF]', ...a)
     };
-
-    const debugBuffer = [];
-
-    function debugTrace(kind, msg, meta = null) {
-        const entry = {
-            at: nowIso(),
-            kind: String(kind || 'info'),
-            msg: String(msg || ''),
-            meta: meta || null
-        };
-        debugBuffer.unshift(entry);
-        if (debugBuffer.length > DEBUG_BUFFER_LIMIT) debugBuffer.length = DEBUG_BUFFER_LIMIT;
-        if (DEBUG) console.debug('[IBAF][TRACE]', entry);
-    }
-
-    function getDebugText() {
-        if (!debugBuffer.length) return 'Zatím žádné debug záznamy v aktuální session.';
-        return debugBuffer.map(item => {
-            const suffix = item.meta ? ` ${JSON.stringify(item.meta)}` : '';
-            return `[${item.at}] ${item.kind.toUpperCase()} ${item.msg}${suffix}`;
-        }).join('\n');
-    }
 
     function cssEscape(s) {
         const str = String(s);
@@ -304,6 +186,12 @@
         saveStats(s);
     }
 
+    const FillMode = Object.freeze({
+        SAFE: 'safe',
+        NORMAL: 'normal',
+        AGGRESSIVE: 'aggressive'
+    });
+
     function defaultVariantData() {
         return {
             idCard: { ...DEFAULT_ID_CARD_DATA },
@@ -313,32 +201,59 @@
         };
     }
 
-    function defaultSettings() {
+    function defaultProfileData() {
         return {
             phone: DEFAULT_PHONE_NUMBER,
             email: DEFAULT_EMAIL_ADDRESS,
+
             variants: {
                 default: defaultVariantData(),
                 SME_STANDALONE: {},
                 SME_BUNDLE: {}
             },
+
             activeVariant: 'default',
-            autoDetectVariant: true
+            autoDetectVariant: true,
+
+            autoRunEnabled: false,
+            autoRunScope: { phone: true, idc: true, sec: true, add: true, aml: true },
+
+            fillMode: FillMode.NORMAL,
+            smartOverwrite: true
         };
     }
 
-    function cloneSettingsData(data, fallback = null) {
-        try {
-            return JSON.parse(JSON.stringify(data));
-        } catch {
-            return fallback;
-        }
-    }
-
-    let settingsCache = null;
-
-    function invalidateSettingsCache() {
-        settingsCache = null;
+    function defaultSettings() {
+        return {
+            activeProfile: 'Test1',
+            profiles: {
+                Test1: defaultProfileData(),
+                Test2: deepMerge(defaultProfileData(), {
+                    phone: '',
+                    email: '',
+                    variants: {
+                        default: {
+                            idCard: deepMerge(DEFAULT_ID_CARD_DATA, {
+                                street: '', descriptiveNumber: '', orientationNumber: '',
+                                town: '', zip: '', birthPlace: '', documentNumber: '', documentValidTo: ''
+                            }),
+                            secondaryDoc: deepMerge(DEFAULT_SECONDARY_DOC_DATA, {
+                                birthPlace: '', documentValidTo: '', documentNumber: ''
+                            }),
+                            additionalInfo: deepMerge(DEFAULT_ADDITIONAL_INFO_DATA, {
+                                turnoverLastYear: '', netAnnuallyBusinessProfit: '',
+                                netMonthlyHouseholdIncome: '', employeeCount: '',
+                                educationLabel: '', maritalStatusLabel: ''
+                            }),
+                            aml: deepMerge(DEFAULT_AML_DATA, {
+                                incomeSourceText: '', transactionTypeId: '',
+                                companyTurnoverId: '', mainAccountFlagId: ''
+                            })
+                        }
+                    }
+                })
+            }
+        };
     }
 
     function normalizeSettings(parsed) {
@@ -346,29 +261,40 @@
         let s = isObj(parsed) ? parsed : {};
         s = deepMerge(def, s);
 
-        if (!isObj(s.variants)) s.variants = { default: defaultVariantData() };
-        if (!isObj(s.variants.default)) s.variants.default = defaultVariantData();
-        if (!isObj(s.variants.SME_STANDALONE)) s.variants.SME_STANDALONE = {};
-        if (!isObj(s.variants.SME_BUNDLE)) s.variants.SME_BUNDLE = {};
+        if (!isObj(s.profiles)) s.profiles = { ...def.profiles };
 
-        if (typeof s.activeVariant !== 'string') s.activeVariant = 'default';
-        if (!s.variants[s.activeVariant]) s.activeVariant = 'default';
+        if (!s.profiles.Test1) s.profiles.Test1 = defaultProfileData();
+        if (!s.profiles.Test2) s.profiles.Test2 = deepMerge(defaultProfileData(), def.profiles.Test2);
+
+        for (const [name, pRaw] of Object.entries(s.profiles)) {
+            const p = deepMerge(defaultProfileData(), isObj(pRaw) ? pRaw : {});
+
+            if (!isObj(p.variants)) p.variants = { default: defaultVariantData() };
+            if (!isObj(p.variants.default)) p.variants.default = defaultVariantData();
+
+            if (!p.variants.SME_STANDALONE) p.variants.SME_STANDALONE = {};
+            if (!p.variants.SME_BUNDLE) p.variants.SME_BUNDLE = {};
+
+            if (!Object.values(FillMode).includes(p.fillMode)) p.fillMode = FillMode.NORMAL;
+
+            if (!isObj(p.autoRunScope)) p.autoRunScope = { phone: true, idc: true, sec: true, add: true, aml: true };
+
+            if (typeof p.activeVariant !== 'string') p.activeVariant = 'default';
+            if (!p.variants[p.activeVariant]) p.activeVariant = 'default';
+
+            s.profiles[name] = p;
+        }
+
+        if (!s.profiles[s.activeProfile]) s.activeProfile = 'Test1';
         return s;
     }
 
     function loadSettings() {
         const def = defaultSettings();
-        if (settingsCache) {
-            return cloneSettingsData(settingsCache, def) || def;
-        }
         try {
             const raw = localStorage.getItem(SETTINGS_KEY);
-            if (!raw) {
-                settingsCache = def;
-                return cloneSettingsData(settingsCache, def) || def;
-            }
-            settingsCache = normalizeSettings(safeJsonParse(raw, def));
-            return cloneSettingsData(settingsCache, def) || def;
+            if (!raw) return def;
+            return normalizeSettings(safeJsonParse(raw, def));
         } catch (e) {
             log.error('loadSettings error', e);
             return def;
@@ -377,19 +303,86 @@
 
     function saveSettings(settings) {
         try {
-            settingsCache = normalizeSettings(settings);
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsCache));
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(settings)));
             return true;
         } catch (e) {
-            invalidateSettingsCache();
             log.error('saveSettings error', e);
             return false;
         }
     }
 
-    function getActiveProfileName() { return 'Default'; }
-    function getActiveProfile() { return loadSettings(); }
-    function resetProfileToDefaults() { return saveSettings(defaultSettings()); }
+    function getActiveProfileName() {
+        return loadSettings().activeProfile || 'Test1';
+    }
+
+    function getActiveProfile() {
+        const s = loadSettings();
+        return s.profiles[s.activeProfile] || s.profiles.Test1;
+    }
+
+    function setActiveProfile(name) {
+        const s = loadSettings();
+        if (!s.profiles[name]) return false;
+        s.activeProfile = name;
+        saveSettings(s);
+        return true;
+    }
+
+    function toggleProfile() {
+        const s = loadSettings();
+        const keys = Object.keys(s.profiles || {});
+        if (keys.length <= 1) return s.activeProfile || 'Test1';
+
+        if (s.profiles.Test1 && s.profiles.Test2) {
+            s.activeProfile = (s.activeProfile === 'Test1') ? 'Test2' : 'Test1';
+            saveSettings(s);
+            return s.activeProfile;
+        }
+
+        const idx = Math.max(0, keys.indexOf(s.activeProfile));
+        const next = keys[(idx + 1) % keys.length];
+        s.activeProfile = next;
+        saveSettings(s);
+        return next;
+    }
+
+    function resetProfileToDefaults(profileName) {
+        const s = loadSettings();
+        if (!s.profiles[profileName]) return false;
+
+        const fresh = defaultProfileData();
+        if (profileName === 'Test2') {
+            s.profiles[profileName] = deepMerge(fresh, {
+                phone: '',
+                email: '',
+                variants: {
+                    default: {
+                        idCard: deepMerge(DEFAULT_ID_CARD_DATA, {
+                            street: '', descriptiveNumber: '', orientationNumber: '',
+                            town: '', zip: '', birthPlace: '', documentNumber: '', documentValidTo: ''
+                        }),
+                        secondaryDoc: deepMerge(DEFAULT_SECONDARY_DOC_DATA, {
+                            birthPlace: '', documentValidTo: '', documentNumber: ''
+                        }),
+                        additionalInfo: deepMerge(DEFAULT_ADDITIONAL_INFO_DATA, {
+                            turnoverLastYear: '', netAnnuallyBusinessProfit: '',
+                            netMonthlyHouseholdIncome: '', employeeCount: '',
+                            educationLabel: '', maritalStatusLabel: ''
+                        }),
+                        aml: deepMerge(DEFAULT_AML_DATA, {
+                            incomeSourceText: '', transactionTypeId: '',
+                            companyTurnoverId: '', mainAccountFlagId: ''
+                        })
+                    }
+                }
+            });
+        } else {
+            s.profiles[profileName] = fresh;
+        }
+
+        saveSettings(s);
+        return true;
+    }
 
     function base64UrlToBase64(s) {
         s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -520,7 +513,7 @@
 #ibaf-menu .hint{padding:7px 12px;color:#94a3b8;font-size:11px;white-space:normal}
 
 #ibaf-person-panel,
-#ibaf-data-panel,
+#ibaf-settings-panel,
 #ibaf-report-panel{
   position:fixed;z-index:2147483647;min-width:360px;max-width:640px;
   background:#0b1220;color:#e2e8f0;border:1px solid rgba(148,163,184,.35);
@@ -530,7 +523,7 @@
   transition:opacity .12s ease,transform .12s ease;
 }
 #ibaf-person-panel.show,
-#ibaf-data-panel.show,
+#ibaf-settings-panel.show,
 #ibaf-report-panel.show{opacity:1;transform:translateY(0);pointer-events:auto}
 
 .ibaf-panel-header{
@@ -929,6 +922,18 @@
         if (!silent) input.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    function isBlank(v) {
+        return v == null || String(v).trim() === '';
+    }
+
+    function looksLikePlaceholderOrDefault(currentVal) {
+        const v = String(currentVal ?? '').trim().toLowerCase();
+        if (v === '') return true;
+        if (v === '-' || v === '–' || v === 'n/a' || v === 'na') return true;
+        if (v === '0' || v === '0,0' || v === '0.0') return true;
+        return false;
+    }
+
     function validateValueByField(fieldKey, value) {
         const v = String(value ?? '').trim();
 
@@ -984,7 +989,7 @@
     function undoLastChange(btn) {
         const item = undoStack.pop();
         if (!item) {
-            if (btn) toast('↩️ Není co vrátit. Historie změn je prázdná.', btn);
+            if (btn) toast('↩️ Nothing to undo (undo history is empty).', btn);
             return false;
         }
 
@@ -993,12 +998,12 @@
         if (type === 'dropdown') {
             const label = String(oldValue || '');
             if (!label) {
-                if (btn) toast('↩️ Vrácení se nepovedlo. Chybí původní hodnota dropdownu.', btn);
+                if (btn) toast('↩️ Undo failed (missing previous dropdown label).', btn);
                 return false;
             }
 
             selectDropdownValueByText(id, label).then(okSel => {
-                if (btn) toast(okSel ? '↩️ Poslední změna byla vrácena.' : '↩️ Vrácení se nepovedlo.', btn);
+                if (btn) toast(okSel ? '↩️ Last change reverted.' : '↩️ Undo failed (best effort).', btn);
             });
 
             return true;
@@ -1040,7 +1045,7 @@
             }
         }
 
-        if (btn) toast(ok ? '↩️ Poslední změna byla vrácena.' : '↩️ Vrácení se nepovedlo.', btn);
+        if (btn) toast(ok ? '↩️ Last change reverted.' : '↩️ Undo failed (best effort).', btn);
         return ok;
     }
 
@@ -1054,6 +1059,9 @@
             this.invalid = [];
             this.notes = [];
             this.variant = null;
+            this.profile = null;
+            this.fillMode = null;
+            this.smartOverwrite = null;
         }
         addFilled(label) { this.filled.push(label); }
         addSkipped(label) { this.skipped.push(label); }
@@ -1238,18 +1246,39 @@
         return false;
     }
 
+    function shouldOverwriteInput(input, overwrite, profile) {
+        const mode = profile.fillMode;
+        if (mode === FillMode.SAFE) return false;
+        if (mode === FillMode.AGGRESSIVE) return true;
+
+        if (overwrite) return true;
+
+        if (profile.smartOverwrite) {
+            return looksLikePlaceholderOrDefault(input.value);
+        }
+        return false;
+    }
+
     function setInputValueWithPolicy(input, value, policy) {
-        const { silent } = policy;
+        const { overwrite, profile, silent } = policy;
 
         if (!isFillableElement(input)) {
             return { applied: false, reason: 'skipped' };
         }
 
+        if (profile.fillMode === FillMode.SAFE) {
+            if (!isBlank(input.value)) return { applied: false, reason: 'skipped' };
+            simulateReactInput(input, String(value ?? ''), { silent: !!silent });
+            return { applied: true, reason: 'filled' };
+        }
+
+        const canOverwrite = shouldOverwriteInput(input, overwrite, profile);
+        if (!canOverwrite && !isBlank(input.value)) return { applied: false, reason: 'skipped' };
+
         const id = input.id || '';
         if (id) pushUndo({ type: 'input', id, oldValue: input.value });
 
         simulateReactInput(input, String(value ?? ''), { silent: !!silent });
-        debugTrace('fill', 'Pole přepsáno', { id: id || '(bez-id)', value: String(value ?? '') });
         return { applied: true, reason: 'filled' };
     }
 
@@ -1273,13 +1302,11 @@
             if (!el) {
                 report.addMissing(label);
                 pushErrorStat(`Field not found: ${label}`);
-                debugTrace('missing', 'Pole nenalezeno', { label, id: f.id || '' });
                 continue;
             }
 
             if (!isFillableElement(el)) {
-                report.addSkipped(`${label} (není editovatelné nebo viditelné)`);
-                debugTrace('skip', 'Pole není editovatelné nebo viditelné', { label, id: f.id || '' });
+                report.addSkipped(`${label} (not editable/visible)`);
                 continue;
             }
 
@@ -1300,7 +1327,7 @@
             }
 
             if (isInvalidDomState(el)) {
-                report.addInvalid(label, 'Pole je po vyplnění označené jako nevalidní v UI (aria-invalid / error class).');
+                report.addInvalid(label, 'Field is marked invalid by UI after fill (aria-invalid / error class).');
                 highlight(el, 'bad');
             }
 
@@ -1424,8 +1451,6 @@
     }
 
     function parsePersonName(text) {
-        // Běžné vstupy, které má parser zvládnout:
-        // "Ing. Jan Novák", "Jan Novák, MBA", "NOVÁK JAN", "Jan Novák ml.", "Bc. Jan Novák DiS."
         const tokens0 = tokenizeName(text);
         if (tokens0.length < 2) return null;
 
@@ -1615,23 +1640,26 @@
     }
 
     function reportToText(r) {
-        if (!r) return 'Žádný report.';
+        if (!r) return 'No report.';
 
         const lines = [];
         lines.push(`AutoFill report: ${r.actionName}`);
-        lines.push(`Čas: ${r.at}`);
-        if (r.variant) lines.push(`Varianta: ${r.variant}`);
-        lines.push(`Shrnutí: ${r.summary()}`);
+        lines.push(`Time: ${r.at}`);
+        if (r.profile) lines.push(`Profile: ${r.profile}`);
+        if (r.variant) lines.push(`Variant: ${r.variant}`);
+        if (r.fillMode) lines.push(`Fill mode: ${r.fillMode}`);
+        if (r.smartOverwrite != null) lines.push(`Smart overwrite: ${r.smartOverwrite ? 'Yes' : 'No'}`);
+        lines.push(`Summary: ${r.summary()}`);
         lines.push('');
 
-        lines.push(`✅ Vyplněno (${r.filled.length}): ${r.filled.join(', ')}`);
-        lines.push(`⏭ Přeskočeno (${r.skipped.length}): ${r.skipped.join(', ')}`);
-        lines.push(`❌ Nenalezeno (${r.missing.length}): ${r.missing.join(', ')}`);
-        lines.push(`⚠️ Varování (${r.invalid.length}): ${r.invalid.map(x => `${x.label}${x.msg ? ` (${x.msg})` : ''}`).join(', ')}`);
+        lines.push(`✅ Filled (${r.filled.length}): ${r.filled.join(', ')}`);
+        lines.push(`⏭ Skipped (${r.skipped.length}): ${r.skipped.join(', ')}`);
+        lines.push(`❌ Missing (${r.missing.length}): ${r.missing.join(', ')}`);
+        lines.push(`⚠️ Warnings (${r.invalid.length}): ${r.invalid.map(x => `${x.label}${x.msg ? ` (${x.msg})` : ''}`).join(', ')}`);
 
         if (r.notes && r.notes.length) {
             lines.push('');
-            lines.push('Poznámky:');
+            lines.push('Notes:');
             for (const n of r.notes) lines.push(`- ${n}`);
         }
 
@@ -1705,7 +1733,10 @@
         const metaParts = [];
         metaParts.push(`Akce: ${r.actionName}`);
         metaParts.push(`Čas: ${r.at}`);
+        if (r.profile) metaParts.push(`Profil: ${r.profile}`);
         if (r.variant) metaParts.push(`Varianta: ${r.variant}`);
+        metaParts.push(`Režim: ${r.fillMode || '-'}`);
+        metaParts.push(`Smart overwrite: ${r.smartOverwrite ? 'Ano' : 'Ne'}`);
 
         metaEl.textContent = metaParts.join(' • ');
 
@@ -1810,25 +1841,88 @@
         openPanelNear(btn, panel, 640, 560);
     }
 
-    function ensureDataPanel() {
-        let panel = document.getElementById('ibaf-data-panel');
+    function ensureSettingsPanel() {
+        let panel = document.getElementById('ibaf-settings-panel');
         if (panel) return panel;
 
         panel = document.createElement('div');
-        panel.id = 'ibaf-data-panel';
+        panel.id = 'ibaf-settings-panel';
         panel.innerHTML = `
   <div class="ibaf-panel-header">
     <div class="title">
-      <span>🧩 Data AutoFill</span>
-      <span class="ibaf-badge" id="ibaf-set-badge">Agresivní režim</span>
+      <span>⚙️ Nastavení AutoFill</span>
+      <span class="ibaf-badge" id="ibaf-set-badge">—</span>
     </div>
     <button type="button" data-action="close" aria-label="Close">✕</button>
   </div>
 
   <div class="ibaf-panel-body">
+    <div class="ibaf-row">
+      <div class="ibaf-field">
+        <label for="ibaf-set-profile">Aktivní profil</label>
+        <select id="ibaf-set-profile"></select>
+      </div>
+      <div class="ibaf-field">
+        <label for="ibaf-set-profileNew">Přidat profil</label>
+        <div class="ibaf-row" style="margin:0">
+          <input id="ibaf-set-profileNew" type="text" placeholder="např. Test3">
+          <button type="button" style="width:120px" data-action="addProfile">Přidat</button>
+        </div>
+      </div>
+    </div>
+
+    <details class="ibaf-details" open>
+      <summary>🧠 Režim vyplňování a Auto-run</summary>
+
+      <div class="ibaf-row">
+        <div class="ibaf-field">
+          <label for="ibaf-set-fillMode">Režim vyplňování</label>
+          <select id="ibaf-set-fillMode">
+            <option value="safe">Safe: nepřepisovat existující hodnoty</option>
+            <option value="normal">Normal: přepis pouze se Shift</option>
+            <option value="aggressive">Aggressive: přepisovat vždy</option>
+          </select>
+        </div>
+        <div class="ibaf-field">
+          <label for="ibaf-set-smartOverwrite">Smart overwrite (jen "placeholder" hodnoty)</label>
+          <select id="ibaf-set-smartOverwrite">
+            <option value="true">Ano</option>
+            <option value="false">Ne</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ibaf-row">
+        <div class="ibaf-field">
+          <label for="ibaf-set-autoRun">Auto-run (spustit akci automaticky po příchodu na stránku)</label>
+          <select id="ibaf-set-autoRun">
+            <option value="false">Vypnuto</option>
+            <option value="true">Zapnuto</option>
+          </select>
+        </div>
+        <div class="ibaf-field">
+          <label for="ibaf-set-autoRunHint">Poznámka</label>
+          <input id="ibaf-set-autoRunHint" type="text" value="Auto-run se spustí max 1× na konkrétní URL (v rámci session)." readonly>
+        </div>
+      </div>
+
+      <div class="ibaf-row">
+        <div class="ibaf-field">
+          <label>Auto-run rozsah</label>
+          <div class="ibaf-hint">Vyber, které stránky může Auto-run vyplňovat.</div>
+          <div class="ibaf-row" style="margin:0;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ibaf-ar-phone"> Telefon+Email</label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ibaf-ar-idc"> Občanka</label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ibaf-ar-sec"> Sek. doklad</label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ibaf-ar-add"> Additional info</label>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ibaf-ar-aml"> AML</label>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <details class="ibaf-details" open>
       <summary>🧩 Varianta datasetu (default / STANDALONE / BUNDLE)</summary>
-      <div class="ibaf-hint">Vyplňování je napevno agresivní. Tady upravuješ jen data a varianty.</div>
 
       <div class="ibaf-row">
         <div class="ibaf-field">
@@ -1937,7 +2031,7 @@
     </details>
 
     <details class="ibaf-details">
-      <summary>📄 Dataset: Doplňující údaje</summary>
+      <summary>📄 Dataset: Additional info</summary>
       <div class="ibaf-hint">Dropdowny se vybírají podle přesného textu položky (label).</div>
 
       <div class="ibaf-row">
@@ -2006,7 +2100,7 @@
 
     <details class="ibaf-details">
       <summary>✅ Dataset: AML</summary>
-      <div class="ibaf-hint">Preferuje se klik podle ID. Pokud ID necháš prázdné, použije se zpřesněná heuristika.</div>
+      <div class="ibaf-hint">Preferuje se klik podle ID. Pokud ID necháš prázdné, použije se heuristika (best effort).</div>
 
       <div class="ibaf-row single">
         <div class="ibaf-field">
@@ -2038,21 +2132,23 @@
 
     <details class="ibaf-details">
       <summary>📦 Export / Import</summary>
-      <div class="ibaf-hint">Exportuj dle potřeby. Import umí sloučení nebo úplné přepsání.</div>
+      <div class="ibaf-hint">Exportuj dle potřeby. Import umí merge nebo overwrite.</div>
 
       <div class="ibaf-row">
         <div class="ibaf-field">
           <label for="ibaf-exp-scope">Export rozsah</label>
           <select id="ibaf-exp-scope">
-            <option value="settings">Celá data skriptu</option>
-            <option value="datasetsOnly">Jen datasety</option>
+            <option value="settings">Celé nastavení (settings)</option>
+            <option value="profiles">Jen profily (profiles)</option>
+            <option value="activeProfile">Jen aktivní profil</option>
+            <option value="activeProfileDatasets">Jen datasety aktivního profilu</option>
           </select>
         </div>
         <div class="ibaf-field">
           <label for="ibaf-imp-mode">Import režim</label>
           <select id="ibaf-imp-mode">
-            <option value="merge">Sloučit data (doplnit / přepsat jen to, co je v JSON)</option>
-            <option value="overwrite">Přepsat vše (nahradit celý datový objekt)</option>
+            <option value="merge">Merge (doplnit / přepsat jen co je v JSON)</option>
+            <option value="overwrite">Overwrite (přepsat celé settings)</option>
           </select>
         </div>
       </div>
@@ -2086,21 +2182,6 @@
       </div>
     </details>
 
-    <details class="ibaf-details">
-      <summary>🪲 Debug</summary>
-      <div class="ibaf-hint">Krátký debug buffer pro aktuální session. Pomůže při rozbití po změně UI.</div>
-      <div class="ibaf-row single">
-        <div class="ibaf-field">
-          <label for="ibaf-debug-area">Debug záznamy</label>
-          <textarea id="ibaf-debug-area" spellcheck="false" readonly></textarea>
-        </div>
-      </div>
-      <div class="ibaf-panel-footer" style="justify-content:flex-start">
-        <button type="button" data-action="refreshDebug">Obnovit</button>
-        <button type="button" data-action="clearDebug">Smazat</button>
-      </div>
-    </details>
-
   </div>
 
   <div class="ibaf-panel-footer">
@@ -2115,6 +2196,19 @@
 
         const ui = {
             badge: panel.querySelector('#ibaf-set-badge'),
+            profileSel: panel.querySelector('#ibaf-set-profile'),
+            profileNew: panel.querySelector('#ibaf-set-profileNew'),
+
+            fillMode: panel.querySelector('#ibaf-set-fillMode'),
+            smartOverwrite: panel.querySelector('#ibaf-set-smartOverwrite'),
+            autoRun: panel.querySelector('#ibaf-set-autoRun'),
+
+            ar_phone: panel.querySelector('#ibaf-ar-phone'),
+            ar_idc: panel.querySelector('#ibaf-ar-idc'),
+            ar_sec: panel.querySelector('#ibaf-ar-sec'),
+            ar_add: panel.querySelector('#ibaf-ar-add'),
+            ar_aml: panel.querySelector('#ibaf-ar-aml'),
+
             autoDetectVariant: panel.querySelector('#ibaf-set-autoDetectVariant'),
             activeVariant: panel.querySelector('#ibaf-set-activeVariant'),
 
@@ -2155,11 +2249,29 @@
             json_area: panel.querySelector('#ibaf-json-area'),
 
             stats_area: panel.querySelector('#ibaf-stats-area'),
-            debug_area: panel.querySelector('#ibaf-debug-area'),
             status: panel.querySelector('.ibaf-status')
         };
 
         const setStatus = (m) => { ui.status.textContent = m || ''; };
+
+        function profileNames(settings) {
+            return Object.keys(settings.profiles || {}).sort((a, b) => a.localeCompare(b, 'cs'));
+        }
+
+        function renderProfileOptions() {
+            const s = loadSettings();
+            const names = profileNames(s);
+
+            ui.profileSel.innerHTML = '';
+            for (const n of names) {
+                const opt = document.createElement('option');
+                opt.value = n;
+                opt.textContent = n;
+                ui.profileSel.appendChild(opt);
+            }
+
+            ui.profileSel.value = s.activeProfile;
+        }
 
         function getSelectedVariantKey(p) {
             if (p.autoDetectVariant) return 'default';
@@ -2168,10 +2280,23 @@
         }
 
         function hydrate() {
-            const p = getActiveProfile();
+            const s = loadSettings();
+            renderProfileOptions();
+
+            const p = s.profiles[s.activeProfile] || s.profiles.Test1;
 
             const runtimeVariant = getEffectiveVariant(p);
-            ui.badge.textContent = `Runtime varianta: ${runtimeVariant}`;
+            ui.badge.textContent = `${s.activeProfile} • runtime varianta: ${runtimeVariant}`;
+
+            ui.fillMode.value = p.fillMode;
+            ui.smartOverwrite.value = String(!!p.smartOverwrite);
+            ui.autoRun.value = String(!!p.autoRunEnabled);
+
+            ui.ar_phone.checked = !!p.autoRunScope.phone;
+            ui.ar_idc.checked = !!p.autoRunScope.idc;
+            ui.ar_sec.checked = !!p.autoRunScope.sec;
+            ui.ar_add.checked = !!p.autoRunScope.add;
+            ui.ar_aml.checked = !!p.autoRunScope.aml;
 
             ui.autoDetectVariant.value = String(!!p.autoDetectVariant);
             ui.activeVariant.value = p.activeVariant || 'default';
@@ -2212,12 +2337,27 @@
             ui.aml_main.value = vData.aml.mainAccountFlagId || '';
 
             refreshStatsText();
-            setStatus(`Edituješ data pro variantu: ${vKey}`);
+            setStatus(`Upravuješ: profil ${s.activeProfile} • dataset varianta v editoru: ${vKey}`);
         }
 
         function collect() {
             const s = loadSettings();
-            const p = s;
+            const profileName = ui.profileSel.value || s.activeProfile;
+
+            if (!s.profiles[profileName]) s.profiles[profileName] = defaultProfileData();
+            const p = s.profiles[profileName];
+
+            p.fillMode = ui.fillMode.value;
+            p.smartOverwrite = ui.smartOverwrite.value === 'true';
+            p.autoRunEnabled = ui.autoRun.value === 'true';
+
+            p.autoRunScope = {
+                phone: !!ui.ar_phone.checked,
+                idc: !!ui.ar_idc.checked,
+                sec: !!ui.ar_sec.checked,
+                add: !!ui.ar_add.checked,
+                aml: !!ui.ar_aml.checked
+            };
 
             p.autoDetectVariant = ui.autoDetectVariant.value === 'true';
             p.activeVariant = ui.activeVariant.value || 'default';
@@ -2268,16 +2408,15 @@
 
             p.variants[vKey] = vOverride;
 
+            s.profiles[profileName] = p;
+            s.activeProfile = profileName;
+
             return s;
         }
 
         function refreshStatsText() {
             const st = loadStats();
             ui.stats_area.value = JSON.stringify(st, null, 2);
-        }
-
-        function refreshDebugText() {
-            ui.debug_area.value = getDebugText();
         }
 
         function doExport() {
@@ -2288,15 +2427,19 @@
 
             if (scope === 'settings') {
                 payload = s;
-            } else if (scope === 'datasetsOnly') {
-                payload = { variants: s.variants, activeVariant: s.activeVariant, autoDetectVariant: s.autoDetectVariant };
+            } else if (scope === 'profiles') {
+                payload = { profiles: s.profiles };
+            } else if (scope === 'activeProfile') {
+                payload = { profileName: s.activeProfile, profile: s.profiles[s.activeProfile] };
+            } else if (scope === 'activeProfileDatasets') {
+                const p = s.profiles[s.activeProfile];
+                payload = { profileName: s.activeProfile, variants: p.variants, activeVariant: p.activeVariant, autoDetectVariant: p.autoDetectVariant };
             } else {
                 payload = s;
             }
 
             ui.json_area.value = JSON.stringify(payload, null, 2);
             setStatus('Export hotový.');
-            debugTrace('export', 'Export dat připraven', { scope });
         }
 
         function doImport() {
@@ -2309,8 +2452,7 @@
 
             if (mode === 'overwrite') {
                 saveSettings(normalizeSettings(incoming));
-                setStatus('Import hotový: přepsaná celá data.');
-                debugTrace('import', 'Import dat přepsal celý objekt');
+                setStatus('Import hotový: overwrite celé settings.');
                 hydrate();
                 refreshBtn();
                 return;
@@ -2319,13 +2461,53 @@
             const current = loadSettings();
             let merged = null;
 
-            if (isObj(incoming)) {
+            if (isObj(incoming) && isObj(incoming.profiles)) {
                 merged = deepMerge(current, incoming);
                 saveSettings(normalizeSettings(merged));
-                setStatus('Import hotový: sloučení dat.');
-                debugTrace('import', 'Import dat provedl merge');
+                setStatus('Import hotový: merge settings.');
+            }
+
+            else if (isObj(incoming) && isObj(incoming.profiles) === false && (isObj(incoming.Test1) || isObj(incoming.Test2))) {
+                merged = deepMerge(current, { profiles: incoming });
+                saveSettings(normalizeSettings(merged));
+                setStatus('Import hotový: merge profiles.');
+            }
+
+            else if (isObj(incoming) && typeof incoming.profileName === 'string' && isObj(incoming.profile)) {
+                const name = incoming.profileName.trim();
+                const patch = { profiles: { [name]: incoming.profile } };
+                merged = deepMerge(current, patch);
+                saveSettings(normalizeSettings(merged));
+                setStatus(`Import hotový: merge profil "${name}".`);
+            }
+
+            else if (isObj(incoming) && typeof incoming.profileName === 'string' && isObj(incoming.variants)) {
+                const name = incoming.profileName.trim();
+                const patch = {
+                    profiles: {
+                        [name]: deepMerge(defaultProfileData(), {
+                            variants: incoming.variants,
+                            activeVariant: incoming.activeVariant,
+                            autoDetectVariant: incoming.autoDetectVariant
+                        })
+                    }
+                };
+                merged = deepMerge(current, patch);
+                saveSettings(normalizeSettings(merged));
+                setStatus(`Import hotový: merge datasety profilu "${name}".`);
+            }
+
+            else if (isObj(incoming)) {
+                const name = (incoming.profileName && typeof incoming.profileName === 'string')
+                ? incoming.profileName.trim()
+                : current.activeProfile;
+
+                const patch = { profiles: { [name]: incoming.profile ? incoming.profile : incoming } };
+                merged = deepMerge(current, patch);
+                saveSettings(normalizeSettings(merged));
+                setStatus(`Import hotový: merge (odhad) profil "${name}".`);
             } else {
-                setStatus('Neznamy format JSON pro import.');
+                setStatus('Neznámý formát JSON pro import.');
             }
 
             hydrate();
@@ -2341,12 +2523,34 @@
                 return;
             }
 
-            if (action === 'defaultsProfile') {
-                resetProfileToDefaults();
+            if (action === 'addProfile') {
+                const name = (ui.profileNew.value || '').trim();
+                if (!name) {
+                    setStatus('Zadej název profilu (např. Test3).');
+                    return;
+                }
+                const s = loadSettings();
+                if (s.profiles[name]) {
+                    setStatus('Profil s tímto názvem už existuje.');
+                    return;
+                }
+                s.profiles[name] = defaultProfileData();
+                s.activeProfile = name;
+                saveSettings(s);
+
+                ui.profileNew.value = '';
                 hydrate();
                 refreshBtn();
-                setStatus('Nactena defaultni data.');
-                debugTrace('reset', 'Načtena výchozí data skriptu');
+                setStatus(`Profil "${name}" byl vytvořen.`);
+                return;
+            }
+
+            if (action === 'defaultsProfile') {
+                const name = ui.profileSel.value || getActiveProfileName();
+                resetProfileToDefaults(name);
+                hydrate();
+                refreshBtn();
+                setStatus(`Defaulty načtené pro profil ${name}.`);
                 return;
             }
 
@@ -2356,7 +2560,6 @@
                     hydrate();
                     refreshBtn();
                     setStatus('Uloženo.');
-                    debugTrace('save', 'Data panel uložen');
                 } else {
                     setStatus('Uložení selhalo (localStorage).');
                 }
@@ -2394,29 +2597,21 @@
                 setStatus('Statistiky smazány.');
                 return;
             }
+        });
 
-            if (action === 'refreshDebug') {
-                refreshDebugText();
-                setStatus('Debug obnoven.');
-                return;
-            }
-
-            if (action === 'clearDebug') {
-                debugBuffer.length = 0;
-                refreshDebugText();
-                setStatus('Debug smazán.');
-                return;
-            }
+        ui.profileSel.addEventListener('change', () => {
+            setActiveProfile(ui.profileSel.value);
+            hydrate();
+            refreshBtn();
         });
 
         window.addEventListener('mousedown', e => {
             if (!panel.classList.contains('show')) return;
-            if (e.target.closest && e.target.closest('#ibaf-data-panel')) return;
+            if (e.target.closest && e.target.closest('#ibaf-settings-panel')) return;
             panel.classList.remove('show');
         }, true);
 
         hydrate();
-        refreshDebugText();
         return panel;
     }
 
@@ -2444,51 +2639,74 @@
         openPanelNear(btn, ensurePersonPanel(), 600, 260);
     }
 
-    function openDataPanelNear(btn) {
-        openPanelNear(btn, ensureDataPanel(), 640, 640);
+    function openSettingsPanelNear(btn) {
+        openPanelNear(btn, ensureSettingsPanel(), 640, 640);
     }
 
-    function selectorLabels(key) {
-        return SELECTOR_REGISTRY.fieldLabels[key] || [];
-    }
+    const FIELD_FALLBACKS = {
+        phoneNumber: ['Telefon', 'Telefonní číslo', 'Číslo telefonu'],
+        email: ['E-mail', 'Email'],
+        street: ['Ulice'],
+        descriptiveNumber: ['Číslo popisné', 'Č.p.', 'CP'],
+        orientationNumber: ['Číslo orientační', 'Č.o.', 'CO'],
+        town: ['Obec', 'Město', 'Obec / Město'],
+        zip: ['PSČ', 'PSC'],
+        birthPlace: ['Místo narození'],
+        documentNumber: ['Číslo dokladu', 'Číslo průkazu'],
+        documentValidTo: ['Platnost do', 'Platnost dokladu do', 'Datum platnosti do'],
 
-    function buildFieldsFromMap(map, data) {
-        return map.map(field => ({
-            id: field.id,
-            labels: field.labels || selectorLabels(field.selectorKey),
-            uiLabel: field.uiLabel,
-            validateKey: field.validateKey || '',
-            val: data[field.dataKey]
-        }));
-    }
+        turnoverLastYear: ['Obrat', 'Obrat za minulý rok'],
+        netAnnuallyBusinessProfit: ['Čistý roční zisk', 'Čistý roční zisk z podnikání'],
+        netMonthlyHouseholdIncome: ['Čistý měsíční příjem domácnosti', 'Příjem domácnosti'],
+        employeeCount: ['Počet zaměstnanců']
+    };
 
     function createReport(actionName) {
+        const pName = getActiveProfileName();
         const p = getActiveProfile();
         const { variantKey } = getEffectiveDatasets(p);
 
         const r = new Reporter(actionName);
+        r.profile = pName;
         r.variant = variantKey;
+        r.fillMode = p.fillMode;
+        r.smartOverwrite = !!p.smartOverwrite;
         return r;
     }
 
-    function fillPhoneAndEmail(btn) {
+    function fillPhoneAndEmail({ overwrite = false } = {}, btn) {
         bumpActionStat('phone');
         const p = getActiveProfile();
         const r = createReport('Telefon + Email');
 
-        const fields = buildFieldsFromMap(ACTION_FIELD_MAPS.phone, p);
+        const fields = [
+            {
+                id: 'phoneNumber',
+                labels: FIELD_FALLBACKS.phoneNumber,
+                val: p.phone || '',
+                uiLabel: 'Telefon',
+                validateKey: 'phone'
+            },
+            {
+                id: 'email',
+                labels: FIELD_FALLBACKS.email,
+                val: p.email || '',
+                uiLabel: 'Email',
+                validateKey: 'email'
+            }
+        ];
 
-        const policy = { profile: p, silent: true };
+        const policy = { overwrite, profile: p, silent: true };
         const changed = fillFields(fields, policy, r);
 
-        r.addNote('Režim: agresivní přepis');
+        r.addNote(`Overwrite: ${overwrite ? 'Ano' : 'Ne'}`);
         lastReport = r;
 
         if (btn) toast(`📱 Telefon+Email: ${r.summary()}`, btn);
         return changed;
     }
 
-    function fillIdentityCard(btn) {
+    function fillIdentityCard({ overwrite = false } = {}, btn) {
         bumpActionStat('idc');
         const p = getActiveProfile();
         const { datasets } = getEffectiveDatasets(p);
@@ -2504,19 +2722,35 @@
             if (person.birthNumber) base.birthNumber = formatBirthNumber(person.birthNumber);
         }
 
-        const fields = buildFieldsFromMap(ACTION_FIELD_MAPS.idc, base);
+        const fields = [
+            { id: 'firstName', labels: ['Jméno'], val: base.firstName, uiLabel: 'Jméno' },
+            { id: 'lastName', labels: ['Příjmení'], val: base.lastName, uiLabel: 'Příjmení' },
+            { id: 'birthDate', labels: ['Datum narození'], val: base.birthDate, uiLabel: 'Datum narození', validateKey: 'date' },
+            { id: 'birthNumber', labels: ['Rodné číslo'], val: base.birthNumber, uiLabel: 'Rodné číslo', validateKey: 'birthNumber' },
 
-        const policy = { profile: p, silent: false };
+            { id: 'street', labels: FIELD_FALLBACKS.street, val: base.street, uiLabel: 'Ulice' },
+            { id: 'descriptiveNumber', labels: FIELD_FALLBACKS.descriptiveNumber, val: base.descriptiveNumber, uiLabel: 'Číslo popisné' },
+            { id: 'orientationNumber', labels: FIELD_FALLBACKS.orientationNumber, val: base.orientationNumber, uiLabel: 'Číslo orientační' },
+
+            { id: 'town', labels: FIELD_FALLBACKS.town, val: base.town, uiLabel: 'Obec / Město' },
+            { id: 'zip', labels: FIELD_FALLBACKS.zip, val: base.zip, uiLabel: 'PSČ', validateKey: 'zip' },
+            { id: 'birthPlace', labels: FIELD_FALLBACKS.birthPlace, val: base.birthPlace, uiLabel: 'Místo narození' },
+
+            { id: 'documentNumber', labels: FIELD_FALLBACKS.documentNumber, val: base.documentNumber, uiLabel: 'Číslo dokladu' },
+            { id: 'documentValidTo', labels: FIELD_FALLBACKS.documentValidTo, val: base.documentValidTo, uiLabel: 'Platnost dokladu do', validateKey: 'date' }
+        ];
+
+        const policy = { overwrite, profile: p, silent: false };
         const changed = fillFields(fields, policy, r);
 
-        r.addNote('Režim: agresivní přepis');
+        r.addNote(`Overwrite: ${overwrite ? 'Ano' : 'Ne'}`);
         lastReport = r;
 
         if (btn) toast(`🪪 Občanka: ${r.summary()}`, btn);
         return changed;
     }
 
-    function fillSecondaryDoc(btn) {
+    function fillSecondaryDoc({ overwrite = false } = {}, btn) {
         bumpActionStat('sec');
         const p = getActiveProfile();
         const { datasets } = getEffectiveDatasets(p);
@@ -2532,29 +2766,43 @@
             if (person.birthNumber) base.birthNumber = formatBirthNumber(person.birthNumber);
         }
 
-        const fields = buildFieldsFromMap(ACTION_FIELD_MAPS.sec, base);
+        const fields = [
+            { id: 'firstName', labels: ['Jméno'], val: base.firstName, uiLabel: 'Jméno' },
+            { id: 'lastName', labels: ['Příjmení'], val: base.lastName, uiLabel: 'Příjmení' },
+            { id: 'birthDate', labels: ['Datum narození'], val: base.birthDate, uiLabel: 'Datum narození', validateKey: 'date' },
+            { id: 'birthNumber', labels: ['Rodné číslo'], val: base.birthNumber, uiLabel: 'Rodné číslo', validateKey: 'birthNumber' },
 
-        const policy = { profile: p, silent: false };
+            { id: 'birthPlace', labels: FIELD_FALLBACKS.birthPlace, val: base.birthPlace, uiLabel: 'Místo narození' },
+            { id: 'documentNumber', labels: FIELD_FALLBACKS.documentNumber, val: base.documentNumber, uiLabel: 'Číslo dokladu' },
+            { id: 'documentValidTo', labels: FIELD_FALLBACKS.documentValidTo, val: base.documentValidTo, uiLabel: 'Platnost dokladu do', validateKey: 'date' }
+        ];
+
+        const policy = { overwrite, profile: p, silent: false };
         const changed = fillFields(fields, policy, r);
 
-        r.addNote('Režim: agresivní přepis');
+        r.addNote(`Overwrite: ${overwrite ? 'Ano' : 'Ne'}`);
         lastReport = r;
 
         if (btn) toast(`🪪 Sek. doklad: ${r.summary()}`, btn);
         return changed;
     }
 
-    async function fillAdditionalInfo(btn) {
+    async function fillAdditionalInfo({ overwrite = false } = {}, btn) {
         bumpActionStat('add');
         const p = getActiveProfile();
         const { datasets } = getEffectiveDatasets(p);
-        const r = createReport('Doplňující údaje');
+        const r = createReport('Additional info');
 
         const ai = deepMerge(DEFAULT_ADDITIONAL_INFO_DATA, datasets.additionalInfo || {});
 
-        const fields = buildFieldsFromMap(ACTION_FIELD_MAPS.add, ai);
+        const fields = [
+            { id: 'turnoverLastYear', labels: FIELD_FALLBACKS.turnoverLastYear, val: ai.turnoverLastYear, uiLabel: 'Obrat za minulý rok', validateKey: 'money' },
+            { id: 'netAnnuallyBusinessProfit', labels: FIELD_FALLBACKS.netAnnuallyBusinessProfit, val: ai.netAnnuallyBusinessProfit, uiLabel: 'Čistý roční zisk z podnikání', validateKey: 'money' },
+            { id: 'netMonthlyHouseholdIncome', labels: FIELD_FALLBACKS.netMonthlyHouseholdIncome, val: ai.netMonthlyHouseholdIncome, uiLabel: 'Čistý měsíční příjem domácnosti', validateKey: 'money' },
+            { id: 'employeeCount', labels: FIELD_FALLBACKS.employeeCount, val: ai.employeeCount, uiLabel: 'Počet zaměstnanců', validateKey: 'money' }
+        ];
 
-        const policy = { profile: p, silent: false };
+        const policy = { overwrite, profile: p, silent: false };
         const changed = fillFields(fields, policy, r);
 
         const okEdu = await selectDropdownValueByText('education', ai.educationLabel);
@@ -2575,10 +2823,10 @@
         const b4 = setBooleanRadioPair('pepFlag', !!ai.pepFlag);
         b4 ? r.addFilled(`PEP = ${ai.pepFlag ? 'Ano' : 'Ne'}`) : r.addMissing('PEP (radio)');
 
-        r.addNote('Režim: agresivní přepis');
+        r.addNote(`Overwrite: ${overwrite ? 'Ano' : 'Ne'}`);
         lastReport = r;
 
-        if (btn) toast(`📄 Doplňující údaje: ${r.summary()}`, btn);
+        if (btn) toast(`📄 Additional info: ${r.summary()}`, btn);
 
         return changed;
     }
@@ -2590,59 +2838,19 @@
         return clickLikeUser(el.closest('label') || el);
     }
 
-    function matchesAnyHint(haystack, hints) {
-        const low = String(haystack || '').toLowerCase();
-        return hints.some(hint => low.includes(String(hint || '').toLowerCase()));
-    }
-
-    function clickRadioLikeByHints({ groupHints = [], optionHints = [] } = {}) {
-        if (!groupHints.length || !optionHints.length) return false;
-
-        const containerSelectors = [
-            'fieldset',
-            '[role="radiogroup"]',
-            '.f-form-group',
-            '.f-radio-group',
-            '.c-form-group',
-            '.form-group',
-            '.o-form-field'
-        ];
-
-        const optionSelectors = [
-            '[role="radio"]',
-            'input[type="radio"]',
-            'label',
-            'button'
-        ].join(',');
-
-        const containers = queryDeepAll(containerSelectors.join(','));
-        for (const container of containers) {
-            const containerText = String(container.textContent || '');
-            if (!matchesAnyHint(containerText, groupHints)) continue;
-
-            const options = [];
-            try {
-                container.querySelectorAll(optionSelectors).forEach(el => options.push(el));
-            } catch {}
-
-            for (const option of options) {
-                const optionText = [
-                    option.id || '',
-                    option.getAttribute?.('for') || '',
-                    option.getAttribute?.('name') || '',
-                    option.getAttribute?.('value') || '',
-                    option.textContent || ''
-                ].join(' ');
-
-                if (!matchesAnyHint(optionText, optionHints)) continue;
-                return clickLikeUser(option.closest('label') || option);
-            }
-        }
-
+    function clickByContainsDeep(needle) {
+        if (!needle) return false;
+        const low = String(needle || '').toLowerCase();
+        const els = queryDeepAll('[role="radio"], input[type="radio"], label, button, div, span')
+        .filter(el => {
+            const s = ((el.id || '') + ' ' + (el.getAttribute?.('for') || '') + ' ' + (el.textContent || '')).toLowerCase();
+            return s.includes(low);
+        });
+        if (els[0]) return clickLikeUser(els[0]);
         return false;
     }
 
-    function fillAML(btn) {
+    function fillAML({ overwrite = false } = {}, btn) {
         bumpActionStat('aml');
         const p = getActiveProfile();
         const { datasets } = getEffectiveDatasets(p);
@@ -2653,26 +2861,16 @@
         const c1 = setCheckboxByLabelText(aml.incomeSourceText);
         c1 ? r.addFilled(`Zdroj příjmů = ${aml.incomeSourceText}`) : r.addMissing('Zdroj příjmů (checkbox)');
 
-        const ok1 = clickByIdDeep(aml.transactionTypeId) || clickRadioLikeByHints({
-            groupHints: ['typ transakc', 'transakc'],
-            optionHints: ['cash', 'hotovost']
-        });
+        const ok1 = clickByIdDeep(aml.transactionTypeId) || clickByContainsDeep('cash');
         ok1 ? r.addFilled('Typ transakcí (radio)') : r.addMissing('Typ transakcí (radio)');
-        if (!ok1) debugTrace('aml', 'Nepodařilo se zvolit typ transakcí', { transactionTypeId: aml.transactionTypeId || '' });
 
-        const ok2 = clickByIdDeep(aml.companyTurnoverId) || clickRadioLikeByHints({
-            groupHints: ['obrat společnosti', 'obrat'],
-            optionHints: ['do 500 000', '500 000', '500000']
-        });
+        const ok2 = clickByIdDeep(aml.companyTurnoverId) || clickByContainsDeep('500');
         ok2 ? r.addFilled('Obrat společnosti (radio)') : r.addMissing('Obrat společnosti (radio)');
-        if (!ok2) debugTrace('aml', 'Nepodařilo se zvolit obrat společnosti', { companyTurnoverId: aml.companyTurnoverId || '' });
 
         const ok3 = clickByIdDeep(aml.mainAccountFlagId) || setBooleanRadioPair('mainAccountFlag', true);
         ok3 ? r.addFilled('Hlavní účet (radio)') : r.addMissing('Hlavní účet (radio)');
-        if (!ok3) debugTrace('aml', 'Nepodařilo se zvolit hlavní účet', { mainAccountFlagId: aml.mainAccountFlagId || '' });
 
-        r.addNote('Režim: agresivní přepis');
-        r.addNote('AML používá hlavně klikání a výběry, ne běžné přepisování inputů.');
+        r.addNote(`Overwrite: ${overwrite ? 'Ano' : 'Ne'} (AML typicky používá kliky, overwrite se týká jen inputů)`);
         lastReport = r;
 
         if (btn) toast(`✅ AML: ${r.summary()}`, btn);
@@ -2685,19 +2883,55 @@
         if (url.includes('/secondary-document-verification')) return 'sec';
         if (url.includes('/additional-info')) return 'add';
 
-        const hasPhone = !!getFieldElement('phoneNumber', selectorLabels('phoneNumber'));
-        const hasEmail = !!getFieldElement('email', selectorLabels('email'));
+        const hasPhone = !!getFieldElement('phoneNumber', FIELD_FALLBACKS.phoneNumber);
+        const hasEmail = !!getFieldElement('email', FIELD_FALLBACKS.email);
         if (hasPhone && hasEmail) return 'phone';
 
         return null;
     }
 
-    function performAction(cmd, btn) {
-        if (cmd === 'phone') return fillPhoneAndEmail(btn);
-        if (cmd === 'idc') return fillIdentityCard(btn);
-        if (cmd === 'sec') return fillSecondaryDoc(btn);
-        if (cmd === 'add') return fillAdditionalInfo(btn);
-        if (cmd === 'aml') return fillAML(btn);
+    function performAction(cmd, { overwrite = false } = {}, btn) {
+        if (cmd === 'phone') return fillPhoneAndEmail({ overwrite }, btn);
+        if (cmd === 'idc') return fillIdentityCard({ overwrite }, btn);
+        if (cmd === 'sec') return fillSecondaryDoc({ overwrite }, btn);
+        if (cmd === 'add') return fillAdditionalInfo({ overwrite }, btn);
+        if (cmd === 'aml') return fillAML({ overwrite }, btn);
+    }
+
+    function loadAutoRunSeen() {
+        try {
+            const raw = sessionStorage.getItem(AUTO_RUN_SESSION_KEY);
+            return raw ? safeJsonParse(raw, {}) : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function saveAutoRunSeen(map) {
+        try {
+            sessionStorage.setItem(AUTO_RUN_SESSION_KEY, JSON.stringify(map || {}));
+        } catch {}
+    }
+
+    function maybeAutoRun(btn) {
+        const p = getActiveProfile();
+        if (!p.autoRunEnabled) return false;
+
+        const cmd = getContextAction();
+        if (!cmd) return false;
+
+        if (!p.autoRunScope || !p.autoRunScope[cmd]) return false;
+
+        const seen = loadAutoRunSeen();
+        const key = location.href;
+        if (seen[key]) return false;
+
+        seen[key] = true;
+        saveAutoRunSeen(seen);
+
+        performAction(cmd, { overwrite: false }, btn);
+        toast(`🧭 Auto-run: spuštěno (${cmd}).`, btn, 1400);
+        return true;
     }
 
     function buildMenu() {
@@ -2707,11 +2941,10 @@
         m = document.createElement('div');
         m.id = 'ibaf-menu';
         m.innerHTML = `
-  <div class="hint">Vyplňování je vždy agresivní. Menu slouží pro akce, data a report.</div>
+  <div class="hint">Tip: Shift + klik na akci = přepsat pole (pokud režim není Safe).</div>
   <div class="sep"></div>
 
   <div class="item" data-cmd="person">👤 Údaje klienta</div>
-  <div class="item" data-cmd="data">🧩 Data</div>
   <div class="item" data-cmd="report">📋 Poslední report</div>
   <div class="item" data-cmd="undo">↩️ Vrátit poslední změnu</div>
 
@@ -2720,11 +2953,13 @@
   <div class="item" data-cmd="phone">📱 Vyplnit Telefon + Email</div>
   <div class="item" data-cmd="idc">🪪 Vyplnit Občanku</div>
   <div class="item" data-cmd="sec">🪪 Vyplnit Sekundární doklad</div>
-  <div class="item" data-cmd="add">📄 Vyplnit Doplňující údaje</div>
+  <div class="item" data-cmd="add">📄 Vyplnit Additional info</div>
   <div class="item" data-cmd="aml">✅ Vyplnit AML</div>
 
   <div class="sep"></div>
 
+  <div class="item" data-cmd="settings">⚙️ Nastavení (Alt+E)</div>
+  <div class="item" data-cmd="profile">🔁 Přepnout profil (Alt+P)</div>
   <div class="item" data-cmd="theme">🎨 Změnit barvu tlačítka</div>
   <div class="item" data-cmd="reset">↩️ Reset pozice (levý horní roh)</div>
 `;
@@ -2747,8 +2982,8 @@
         setEnabled('add', url.includes('/additional-info'));
         setEnabled('aml', url.includes('/aml'));
 
-        const hasPhone = !!getFieldElement('phoneNumber', selectorLabels('phoneNumber'));
-        const hasEmail = !!getFieldElement('email', selectorLabels('email'));
+        const hasPhone = !!getFieldElement('phoneNumber', FIELD_FALLBACKS.phoneNumber);
+        const hasEmail = !!getFieldElement('email', FIELD_FALLBACKS.email);
         setEnabled('phone', !!(hasPhone && hasEmail));
 
         setEnabled('person', url.includes('/business-detail'));
@@ -2773,14 +3008,18 @@
                 resetTopLeft(btn);
             } else if (cmd === 'person') {
                 openPersonPanelNear(btn);
-            } else if (cmd === 'data') {
-                openDataPanelNear(btn);
+            } else if (cmd === 'settings') {
+                openSettingsPanelNear(btn);
+            } else if (cmd === 'profile') {
+                const next = toggleProfile();
+                refreshBtn();
+                toast(`🔁 Profil: ${next}`, btn);
             } else if (cmd === 'undo') {
                 undoLastChange(btn);
             } else if (cmd === 'report') {
                 openReportPanelNear(btn);
             } else {
-                performAction(cmd, btn);
+                performAction(cmd, { overwrite: ev.shiftKey }, btn);
             }
 
             close();
@@ -2816,10 +3055,10 @@
         return m;
     }
 
-    function performDefaultActionOrMenu(btn) {
+    function performDefaultActionOrMenu(btn, evt) {
         const cmd = getContextAction();
         if (cmd) {
-            performAction(cmd, btn);
+            performAction(cmd, { overwrite: !!evt?.shiftKey }, btn);
         } else {
             const rect = btn.getBoundingClientRect();
             showMenuAt(rect.right + 8, rect.top, btn);
@@ -2909,7 +3148,7 @@
 
         btn.addEventListener('click', e => {
             if (btn._dragging) return;
-            performDefaultActionOrMenu(btn);
+            performDefaultActionOrMenu(btn, e);
         });
 
         btn.addEventListener('contextmenu', e => {
@@ -3020,25 +3259,39 @@
         const btn = ensureButton();
         btn.style.display = shouldShowBtn() ? 'flex' : 'none';
 
+        const pName = getActiveProfileName();
         const p = getActiveProfile();
         const runtimeVariant = getEffectiveVariant(p);
 
-        const badgeEl = btn.querySelector(`#${UI_IDS.buttonBadge}`);
+        const badgeEl = btn.querySelector('#ibaf-btn-badge');
         if (badgeEl) {
-            badgeEl.textContent = 'AF';
+            const modeLetter = (p.fillMode === 'safe') ? 'S' : (p.fillMode === 'aggressive') ? 'A' : 'N';
+            const autoLetter = p.autoRunEnabled ? '▶' : '⏸';
+
+            let profTag = String(pName || '').trim();
+            const m = profTag.match(/^test\s*(\d+)$/i);
+            if (m) profTag = 'T' + m[1];
+            else profTag = profTag.slice(0, 2).toUpperCase();
+
+            badgeEl.textContent = `${profTag}${modeLetter}${autoLetter}`;
         }
 
         btn.title =
 `AutoFill
-Klik: akce dle stránky, jinak menu
+Klik: akce dle stránky, jinak menu (Shift = přepsat v Normal režimu)
 Pravé tlačítko / Ctrl+Alt+A: menu
 Alt+S: Údaje klienta (jen /business-detail)
-Alt+E: Data
-Alt+R: Poslední report
-Alt+Z: Vrátit poslední změnu
+Alt+E: Nastavení
+Alt+P: Přepnout profil
 
+Profil: ${pName}
 Runtime varianta: ${runtimeVariant}
-Režim: agresivní`;
+Režim: ${p.fillMode}
+Auto-run: ${p.autoRunEnabled ? 'Zapnuto' : 'Vypnuto'}`;
+
+        if (btn.style.display !== 'none') {
+            maybeAutoRun(btn);
+        }
     }
 
     function onSpaUrlChange(cb) {
@@ -3053,35 +3306,29 @@ Režim: agresivní`;
         };
 
         const push = history.pushState;
-        const wrappedPushState = function () {
+        history.pushState = function () {
             const r = push.apply(this, arguments);
             fire();
             return r;
         };
-        history.pushState = wrappedPushState;
 
         const rep = history.replaceState;
-        const wrappedReplaceState = function () {
+        history.replaceState = function () {
             const r = rep.apply(this, arguments);
             fire();
             return r;
         };
-        history.replaceState = wrappedReplaceState;
 
         window.addEventListener('popstate', fire);
 
         const mo = new MutationObserver(() => fire());
         mo.observe(document.body, { childList: true, subtree: true });
-
-        return () => {
-            if (history.pushState === wrappedPushState) history.pushState = push;
-            if (history.replaceState === wrappedReplaceState) history.replaceState = rep;
-            window.removeEventListener('popstate', fire);
-            mo.disconnect();
-        };
     }
 
     function handleUrlChange(url) {
+        if (url.includes('/basic-info') || url.includes('/identification')) {
+            clearPersonData();
+        }
         refreshBtn();
     }
 
@@ -3091,18 +3338,14 @@ Režim: agresivní`;
         debounceT = setTimeout(refreshBtn, 120);
     });
     mo.observe(document.body, { childList: true, subtree: true });
-    registerCleanup(() => {
-        clearTimeout(debounceT);
-        mo.disconnect();
-    });
 
-    registerCleanup(onSpaUrlChange(handleUrlChange));
+    onSpaUrlChange(handleUrlChange);
 
-    const onKeydown = e => {
+    window.addEventListener('keydown', e => {
         if (e.altKey && (e.key === 'a' || e.key === 'A') && !e.ctrlKey) {
             e.preventDefault();
             const btn = ensureButton();
-            performDefaultActionOrMenu(btn);
+            performDefaultActionOrMenu(btn, e);
             return;
         }
 
@@ -3126,7 +3369,16 @@ Režim: agresivní`;
         if (e.altKey && !e.ctrlKey && (e.key === 'e' || e.key === 'E')) {
             e.preventDefault();
             const btn = ensureButton();
-            openDataPanelNear(btn);
+            openSettingsPanelNear(btn);
+            return;
+        }
+
+        if (e.altKey && !e.ctrlKey && (e.key === 'p' || e.key === 'P')) {
+            e.preventDefault();
+            const btn = ensureButton();
+            const next = toggleProfile();
+            refreshBtn();
+            toast(`🔁 Profil: ${next}`, btn);
             return;
         }
 
@@ -3143,28 +3395,9 @@ Režim: agresivní`;
             undoLastChange(btn);
             return;
         }
-    };
-    window.addEventListener('keydown', onKeydown, { passive: false });
-    registerCleanup(() => window.removeEventListener('keydown', onKeydown, false));
-
-    function destroyRuntime({ silent = false } = {}) {
-        runCleanups();
-        removeElementById('ibaf-ntb-style');
-        Object.values(UI_IDS).forEach(removeElementById);
-        delete window[SCRIPT_KEY];
-        if (!silent) console.info('[IBAF] AutoFill snippet odinstalován.');
-    }
+    }, { passive: false });
 
     handleUrlChange(location.href);
     refreshBtn();
-
-    window[SCRIPT_KEY] = {
-        destroy: destroyRuntime,
-        refresh: () => refreshBtn(),
-        openData: () => openDataPanelNear(ensureButton()),
-        openPerson: () => openPersonPanelNear(ensureButton()),
-        openReport: () => openReportPanelNear(ensureButton())
-    };
-    console.info('[IBAF] AutoFill snippet aktivní. API: window.__IBAF_NTB_AUTOFILL_RUNTIME__');
 
 })();

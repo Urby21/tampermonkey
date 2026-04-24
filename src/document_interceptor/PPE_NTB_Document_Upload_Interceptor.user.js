@@ -12,6 +12,28 @@
 (function(){
     'use strict';
 
+    const SCRIPT_KEY='__DOCINT_RUNTIME__';
+    const previousRuntime=window[SCRIPT_KEY];
+    if(previousRuntime&&typeof previousRuntime.destroy==='function'){
+        try{
+            previousRuntime.destroy({silent:true,reason:'reinit'});
+        }catch(e){
+            console.warn('[DOC-INT] Nepodařilo se odinstalovat předchozí runtime.',e);
+        }
+    }
+
+    const cleanupFns=[];
+    function registerCleanup(fn){
+        if(typeof fn==='function') cleanupFns.push(fn);
+        return fn;
+    }
+    function runCleanups(){
+        while(cleanupFns.length){
+            const fn=cleanupFns.pop();
+            try{fn()}catch(e){console.warn('[DOC-INT] Cleanup chyba:',e)}
+        }
+    }
+
     const DEBUG=false;
 
     const base64Samples={
@@ -72,12 +94,22 @@
         const keyPart='@'+routeKeyFromHref(href);
         for(const k of Array.from(seqState.keys())) if(k.endsWith(keyPart)) seqState.delete(k);
     }
-    addEventListener('hashchange',()=>resetSequenceForHref(curHref()));
-    addEventListener('popstate',()=>resetSequenceForHref(curHref()));
+    const onHashChange=()=>resetSequenceForHref(curHref());
+    const onPopState=()=>resetSequenceForHref(curHref());
+    addEventListener('hashchange',onHashChange);
+    addEventListener('popstate',onPopState);
+    registerCleanup(()=>removeEventListener('hashchange',onHashChange));
+    registerCleanup(()=>removeEventListener('popstate',onPopState));
     (function(){
         const _p=history.pushState,_r=history.replaceState;
-        history.pushState=function(){const r=_p.apply(this,arguments);resetSequenceForHref(curHref());return r};
-        history.replaceState=function(){const r=_r.apply(this,arguments);resetSequenceForHref(curHref());return r};
+        const wrappedPushState=function(){const r=_p.apply(this,arguments);resetSequenceForHref(curHref());return r};
+        const wrappedReplaceState=function(){const r=_r.apply(this,arguments);resetSequenceForHref(curHref());return r};
+        history.pushState=wrappedPushState;
+        history.replaceState=wrappedReplaceState;
+        registerCleanup(()=>{
+            if(history.pushState===wrappedPushState) history.pushState=_p;
+            if(history.replaceState===wrappedReplaceState) history.replaceState=_r;
+        });
     })();
 
     function dataUrlToFile(dataUrl,docType){
@@ -129,7 +161,7 @@
         const orig=window.fetch?window.fetch.bind(window):null;
         if(!orig){warn('window.fetch není k dispozici – přeskočeno.');return}
 
-        window.fetch=async function(input,init){
+        const wrappedFetch=async function(input,init){
             const url=typeof input==='string'?input:input&&input.url;
             if(!url||!isTargetUrl(url)) return orig(input,init);
 
@@ -207,18 +239,21 @@
             }catch{}
             return resp;
         };
+        window.fetch=wrappedFetch;
+        registerCleanup(()=>{ if(window.fetch===wrappedFetch) window.fetch=orig; });
     })();
 
     (function(){
         const oOpen=XMLHttpRequest.prototype.open;
         const oSend=XMLHttpRequest.prototype.send;
 
-        XMLHttpRequest.prototype.open=function(method,url,async,user,pass){
+        const wrappedOpen=function(method,url,async,user,pass){
             this.__docint={method,url,modified:false,detected:null};
             return oOpen.apply(this,arguments);
         };
+        XMLHttpRequest.prototype.open=wrappedOpen;
 
-        XMLHttpRequest.prototype.send=function(body){
+        const wrappedSend=function(body){
             try{
                 const info=this.__docint||{};
                 const url=info.url||'';
@@ -276,7 +311,26 @@
                 return oSend.apply(this,arguments);
             }
         };
+        XMLHttpRequest.prototype.send=wrappedSend;
+        registerCleanup(()=>{
+            if(XMLHttpRequest.prototype.open===wrappedOpen) XMLHttpRequest.prototype.open=oOpen;
+            if(XMLHttpRequest.prototype.send===wrappedSend) XMLHttpRequest.prototype.send=oSend;
+        });
     })();
 
+    function destroyRuntime({silent=false}={}){
+        runCleanups();
+        seqState.clear();
+        delete window[SCRIPT_KEY];
+        if(!silent) console.info('[DOC-INT] Document interceptor odinstalován.');
+    }
+
+    window[SCRIPT_KEY]={
+        destroy:destroyRuntime,
+        force(docType){ window.__DOCINT_FORCE=docType?String(docType):''; },
+        clearForce(){ try{ delete window.__DOCINT_FORCE; }catch{ window.__DOCINT_FORCE=''; } },
+        reset(){ seqState.clear(); resetSequenceForHref(curHref()); }
+    };
     log('Interceptor v1.0 nahrán: JSON/FormData/URLParams, File+base64, sekvence po 2xx.');
+    console.info('[DOC-INT] Document interceptor aktivní. API: window.__DOCINT_RUNTIME__');
 })();
