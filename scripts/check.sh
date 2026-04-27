@@ -39,11 +39,13 @@ for file in src/login/Login_AutoFill.js src/autofill/NTB_AutoFill_All_In_One.js 
   if ! rg -q 'https://local\.test-tools/' "$file"; then
     fail "$file nema neutralni namespace."
   fi
-  if ! rg -q '@version\s+1\.0\.0' "$file"; then
-    fail "$file nema ocekavanou verzi 1.0.0."
-  fi
   if ! rg -q 'SCRIPT_VERSION' "$file"; then
     fail "$file nema runtime health verzi SCRIPT_VERSION."
+  fi
+  meta_version=$(sed -n 's|^// @version[[:space:]]*||p' "$file" | head -n 1)
+  runtime_version=$(sed -n "s|^[[:space:]]*const SCRIPT_VERSION[[:space:]]*=[[:space:]]*['\"]\\([^'\"]*\\)['\"].*|\\1|p" "$file" | head -n 1)
+  if [ -z "$meta_version" ] || [ -z "$runtime_version" ] || [ "$meta_version" != "$runtime_version" ]; then
+    fail "$file nema shodnou @version a SCRIPT_VERSION."
   fi
 done
 

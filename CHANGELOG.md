@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Document interceptor: runtime API je znovu zapnute pro rucni ladeni a `force(...)` workflow.
+- Document interceptor: route detekce `secondary-document-photo` funguje i bez hash prefixu.
+
 ## 1.0.0
 
 - Slouceny aktivni skripty do tri samostatnych souboru v `src/`.
